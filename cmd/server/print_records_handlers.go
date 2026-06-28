@@ -17,17 +17,18 @@ import (
 )
 
 type printRecordResponse struct {
-	ID         int64  `json:"id"`
-	UserID     int64  `json:"userId"`
-	Username   string `json:"username"`
-	PrinterURI string `json:"printerUri"`
-	Filename   string `json:"filename"`
-	Pages      int    `json:"pages"`
-	JobID      string `json:"jobId"`
-	Status     string `json:"status"`
-	IsDuplex   bool   `json:"isDuplex"`
-	IsColor    bool   `json:"isColor"`
-	CreatedAt  string `json:"createdAt"`
+	ID         int64   `json:"id"`
+	UserID     int64   `json:"userId"`
+	Username   string  `json:"username"`
+	PrinterURI string  `json:"printerUri"`
+	Filename   string  `json:"filename"`
+	Pages      int     `json:"pages"`
+	Price      float64 `json:"price"`
+	JobID      string  `json:"jobId"`
+	Status     string  `json:"status"`
+	IsDuplex   bool    `json:"isDuplex"`
+	IsColor    bool    `json:"isColor"`
+	CreatedAt  string  `json:"createdAt"`
 }
 
 func printRecordsHandler(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +188,7 @@ func mapPrintRecords(records []store.PrintRecord) []printRecordResponse {
 			PrinterURI: rec.PrinterURI,
 			Filename:   rec.Filename,
 			Pages:      rec.Pages,
+			Price:      rec.Price,
 			JobID:      jobID,
 			Status:     rec.Status,
 			IsDuplex:   rec.IsDuplex,

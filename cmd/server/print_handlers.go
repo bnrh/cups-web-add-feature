@@ -13,6 +13,8 @@ import (
 	"cups-web/internal/auth"
 	"cups-web/internal/ipp"
 	"cups-web/internal/store"
+
+	"strings"
 )
 
 type printResp struct {
@@ -22,6 +24,7 @@ type printResp struct {
 	IsDuplex bool   `json:"isDuplex"`
 	IsColor  bool   `json:"isColor"`
 	Copies   int    `json:"copies"`
+	Price    float64 `json:"price"`
 }
 
 func printHandler(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +197,55 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 	if pages < 1 {
 		pages = 1
 	}
+
+	// 实际打印页数
+	actualPages := pages
+
+	// 页码范围
+	if pageRange != "" {
+		actualPages = countPagesFromRange(pageRange, pages)
+	}
+
+	// 奇数页 / 偶数页
+	if pageSet == "odd" {
+		// 奇数页：向上取整
+		actualPages = (actualPages + 1) / 2
+	} else if pageSet == "even" {
+		// 偶数页：向下取整
+		actualPages = actualPages / 2
+	}
+
+	// 份数
+	actualPages = actualPages * copies
+
+	// 最终纸张数
+	actualSheets := actualPages
+
+	// 双面打印时：两页纸面共用一张纸
+	if isDuplex {
+		actualSheets = (actualPages + 1) / 2
+	}
+
+	// 价格计算
+	var price float64
+
+	if isDuplex {
+		price = float64(actualSheets) * 0.18
+	} else {
+		price = float64(actualSheets) * 0.12
+	}
+
+	// 测试价格计算逻辑
+	// log.Printf(
+	// 	"[price] pages=%d actualPages=%d actualSheets=%d duplex=%v copies=%d price=%.2f",
+	// 	pages,
+	// 	actualPages,
+	// 	actualSheets,
+	// 	isDuplex,
+	// 	copies,
+	// 	price,
+	// )
+
 	if printCleanup != nil {
 		defer printCleanup()
 	}
@@ -212,7 +264,8 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 			PrinterURI: printer,
 			Filename:   fh.Filename,
 			StoredPath: storedRel,
-			Pages:      pages,
+			Pages:      actualSheets,
+			Price:      price,
 			Status:     "queued",
 			IsDuplex:   isDuplex,
 			IsColor:    isColor,
@@ -281,9 +334,62 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(printResp{
 		JobID:    job,
 		OK:       true,
-		Pages:    pages,
+		Pages:    actualSheets,
 		IsDuplex: isDuplex,
 		IsColor:  isColor,
 		Copies:   copies,
+		Price:    price,
 	})
+}
+
+func countPagesFromRange(pageRange string, maxPages int) int {
+	count := 0
+
+	ranges := strings.Split(pageRange, ",")
+
+	for _, r := range ranges {
+		r = strings.TrimSpace(r)
+
+		if strings.Contains(r, "-") {
+			parts := strings.Split(r, "-")
+
+			if len(parts) != 2 {
+				continue
+			}
+
+			start, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+			end, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+
+			if err1 != nil || err2 != nil {
+				continue
+			}
+
+			if start < 1 {
+				start = 1
+			}
+
+			if end > maxPages {
+				end = maxPages
+			}
+
+			if end >= start {
+				count += end - start + 1
+			}
+		} else {
+			// _, err := strconv.Atoi(r)
+
+			// if err == nil {
+
+			page, err := strconv.Atoi(r)
+			if err == nil && page >= 1 && page <= maxPages {
+				count++
+			}
+		}
+	}
+
+	if count < 1 {
+		return maxPages
+	}
+
+	return count
 }
