@@ -39,7 +39,7 @@
           <div class="flex items-start gap-2">
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium truncate">{{ rec.filename }}</p>
-              <p class="text-xs text-muted mt-0.5">{{ formatPrinterName(rec.printerUri) }} · {{ rec.pages }}页</p>
+              <p class="text-xs text-muted mt-0.5">{{ formatPrinterName(rec.printerUri) }} · {{ rec.pages }}页 · <span class="font-medium">价格：</span>¥{{ Number(rec.price || 0).toFixed(2) }} 元</p>
               <p class="text-xs text-muted">{{ formatTime(rec.createdAt) }}</p>
             </div>
             <UBadge :color="statusColor(rec.status)" variant="subtle" size="xs">
