@@ -15,6 +15,7 @@ type PrintRecord struct {
 	Filename   string
 	StoredPath string
 	Pages      int
+	Price      float64
 	JobID      sql.NullString
 	Status     string
 	IsDuplex   bool
@@ -31,10 +32,10 @@ type PrintFilter struct {
 
 func InsertPrintRecord(ctx context.Context, tx *sql.Tx, rec *PrintRecord) (int64, error) {
 	res, err := tx.ExecContext(ctx, `INSERT INTO print_jobs (
-		user_id, printer_uri, filename, stored_path, pages,
+		user_id, printer_uri, filename, stored_path, pages, price,
 		job_id, status, is_duplex, is_color, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rec.UserID, rec.PrinterURI, rec.Filename, rec.StoredPath, rec.Pages,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.UserID, rec.PrinterURI, rec.Filename, rec.StoredPath, rec.Pages, rec.Price,
 		rec.JobID, rec.Status, rec.IsDuplex, rec.IsColor, rec.CreatedAt,
 	)
 	if err != nil {
@@ -50,7 +51,7 @@ func UpdatePrintStatus(ctx context.Context, tx *sql.Tx, id int64, status string,
 
 func GetPrintRecordByID(ctx context.Context, tx *sql.Tx, id int64) (PrintRecord, error) {
 	row := tx.QueryRowContext(ctx, `SELECT
-		p.id, p.user_id, u.username, p.printer_uri, p.filename, p.stored_path, p.pages,
+		p.id, p.user_id, u.username, p.printer_uri, p.filename, p.stored_path, p.pages, p.price,
 		p.job_id, p.status, p.is_duplex, p.is_color, p.created_at
 		FROM print_jobs p
 		JOIN users u ON u.id = p.user_id
@@ -58,7 +59,7 @@ func GetPrintRecordByID(ctx context.Context, tx *sql.Tx, id int64) (PrintRecord,
 	var rec PrintRecord
 	err := row.Scan(
 		&rec.ID, &rec.UserID, &rec.Username, &rec.PrinterURI, &rec.Filename, &rec.StoredPath,
-		&rec.Pages, &rec.JobID, &rec.Status, &rec.IsDuplex, &rec.IsColor, &rec.CreatedAt,
+		&rec.Pages, &rec.Price, &rec.JobID, &rec.Status, &rec.IsDuplex, &rec.IsColor, &rec.CreatedAt,
 	)
 	return rec, err
 }
@@ -79,7 +80,7 @@ func ListPrintRecords(ctx context.Context, tx *sql.Tx, filter PrintFilter) ([]Pr
 		args = append(args, filter.EndAt)
 	}
 	query := fmt.Sprintf(`SELECT
-		p.id, p.user_id, u.username, p.printer_uri, p.filename, p.stored_path, p.pages,
+		p.id, p.user_id, u.username, p.printer_uri, p.filename, p.stored_path, p.pages, p.price,
 		p.job_id, p.status, p.is_duplex, p.is_color, p.created_at
 		FROM print_jobs p
 		JOIN users u ON u.id = p.user_id
@@ -100,7 +101,7 @@ func ListPrintRecords(ctx context.Context, tx *sql.Tx, filter PrintFilter) ([]Pr
 		var rec PrintRecord
 		if err := rows.Scan(
 			&rec.ID, &rec.UserID, &rec.Username, &rec.PrinterURI, &rec.Filename, &rec.StoredPath,
-			&rec.Pages, &rec.JobID, &rec.Status, &rec.IsDuplex, &rec.IsColor, &rec.CreatedAt,
+			&rec.Pages, &rec.Price, &rec.JobID, &rec.Status, &rec.IsDuplex, &rec.IsColor, &rec.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

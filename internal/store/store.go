@@ -101,6 +101,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			filename TEXT NOT NULL,
 			stored_path TEXT NOT NULL,
 			pages INTEGER NOT NULL,
+			price REAL NOT NULL DEFAULT 0,
 			job_id TEXT,
 			status TEXT NOT NULL,
 			is_duplex INTEGER NOT NULL DEFAULT 0,
@@ -122,6 +123,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	if err := addColumnIfMissing(ctx, s.DB, "print_jobs", "is_color INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+
+	// ✅ 新增
+	if err := addColumnIfMissing(ctx, s.DB, "print_jobs", "price REAL NOT NULL DEFAULT 0"); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
