@@ -212,6 +212,8 @@
       <!-- 右栏：预览 + 打印记录 + 打印机状态 -->
       <div class="lg:col-span-3 space-y-4">
         <div class="lg:sticky lg:top-4 space-y-4">
+          <PrintServiceCard />
+          
           <PrintPreview
             :selected-file="selectedFile"
             :is-multi-image="isMultiImage"
@@ -226,7 +228,19 @@
             :watermark-text="watermarkText"
           />
         </div>
-        <PrintRecordList ref="recordListRef" :records="printRecords" :loading="loadingRecords" :printers="printers" :current-printer="printer" @refresh="loadPrintRecords" @reprint="handleReprint" />
+        <!-- <PrintRecordList ref="recordListRef" :records="printRecords" :loading="loadingRecords" :printers="printers" :current-printer="printer" @refresh="loadPrintRecords" @reprint="handleReprint" />  -->
+        <!-- <PrintRecordList :records="printRecords" :loading="loadingRecords" @refresh="loadPrintRecords" /> -->
+        <!-- 修改组件传值 -->
+		<PrintRecordList
+		  ref="recordListRef"
+		  :records="currentSessionRecords"
+		  :loading="loadingRecords"
+		  :printers="printers"
+		  :current-printer="printer"
+		  @refresh="loadPrintRecords"
+		  @reprint="handleReprint"
+		/>
+        
         <PrinterStatus :printer-info="printerInfo" :printer-uri="printer" :loading="loadingPrinterInfo" :error="printerInfoError" @refresh="loadPrinterInfo" />
       </div>
     </div>
@@ -313,11 +327,9 @@ const refreshing = ref(false)
 // ─── 打印记录 ─────────────────────────────────────────────
 // 记录登录时间
 const loginTime = ref(Date.now())
-
 const printRecords = ref([])
 const loadingRecords = ref(false)
 const recordListRef = ref(null)
-
 // 过滤打印记录
 const currentSessionRecords = computed(() => {
   return printRecords.value.filter(rec => {
@@ -883,7 +895,7 @@ async function loadPrintRecords(silent = false) {
       printRecords.value = (data || []).map(r => ({
         id: r.id, filename: r.filename, printerUri: r.printerUri,
         pages: r.pages, status: r.status, isColor: r.isColor,
-        isDuplex: r.isDuplex, jobId: r.jobId, createdAt: r.createdAt, price: r.price
+        isDuplex: r.isDuplex, jobId: r.jobId, createdAt: r.createdAt
       }))
     }
   } catch (e) {
@@ -1106,6 +1118,7 @@ onMounted(async () => {
   }
 
   loginTime.value = Number(sessionStorage.getItem('login_time'))
+  
   } catch (e) {
     toast.add({ title: '加载打印机失败', description: e.message, color: 'error' })
   }

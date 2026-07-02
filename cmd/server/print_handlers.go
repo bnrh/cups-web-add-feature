@@ -15,8 +15,6 @@ import (
 	"cups-web/internal/auth"
 	"cups-web/internal/ipp"
 	"cups-web/internal/store"
-
-	"strings"
 )
 
 type printResp struct {
@@ -212,7 +210,7 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 	if pages < 1 {
 		pages = 1
 	}
-
+	
 	// 实际打印页数
 	actualPages := pages
 
@@ -260,7 +258,7 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 	// 	copies,
 	// 	price,
 	// )
-
+	
 	if printCleanup != nil {
 		defer printCleanup()
 	}

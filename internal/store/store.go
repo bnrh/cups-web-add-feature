@@ -127,11 +127,6 @@ func (s *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	// ✅ 新增
-	if err := addColumnIfMissing(ctx, s.DB, "print_jobs", "price REAL NOT NULL DEFAULT 0"); err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-
 	if _, err := s.DB.ExecContext(ctx, `INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)`,
 		SettingRetentionDays, "0",
 	); err != nil {
