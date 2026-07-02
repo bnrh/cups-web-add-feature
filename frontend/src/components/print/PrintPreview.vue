@@ -29,7 +29,7 @@
     <!-- 外层 bg-elevated 提供浅灰底 + padding，使白纸比容器略小一圈更耐看；
          内层白纸宽度 = 容器内容区宽度，高度由 aspect-ratio 按纸张真实比例自动决定。 -->
     <div
-      v-if="selectedFile || isMultiImage"
+      v-if="selectedFile || isMultiImage || previewUrl"
       class="bg-elevated rounded-lg p-3 sm:p-4"
     >
       <div
@@ -37,7 +37,7 @@
         class="bg-white shadow-lg border border-default overflow-hidden transition-all duration-300 ease-in-out relative mx-auto"
       >
         <img v-if="previewType === 'image'" :src="previewUrl" class="w-full h-full object-contain" />
-        <PdfCanvas v-else-if="previewType === 'pdf'" :src="previewUrl" @preview-failed="onPreviewFailed" />
+        <PdfCanvas v-else-if="previewType === 'pdf'" :src="previewUrl" :watermark-text="watermarkText" @preview-failed="onPreviewFailed" />
         <div
           v-else-if="previewType === 'text'"
           class="p-3 text-[8px] leading-tight overflow-hidden h-full text-gray-700 dark:text-gray-300 whitespace-pre-wrap"
@@ -72,7 +72,8 @@ const props = defineProps({
   orientation: { type: String, default: 'portrait' },
   orientationLabel: { type: String, default: '' },
   paperDimText: { type: String, default: '' },
-  paperPreviewStyle: { type: Object, default: () => ({}) }
+  paperPreviewStyle: { type: Object, default: () => ({}) },
+  watermarkText: { type: String, default: '' }
 })
 
 defineEmits(['update:orientation'])

@@ -54,7 +54,7 @@ cups-web/
 │   ├── app.go                     # 全局变量（appStore、uploadDir）
 │   ├── bootstrap.go               # 默认 admin 初始化
 │   ├── auth_handlers.go           # 登录 / 登出 / session / csrf / me
-│   ├── admin_handlers.go          # 管理员：用户 / 系统设置
+│   ├── admin_handlers.go          # 管理员：用户 / 系统设置 / 手动清理
 │   ├── user_handlers.go           # /api/me
 │   ├── print_handlers.go          # /api/print（主打印入口）
 │   ├── print_records_handlers.go  # 打印记录查询、文件下载
@@ -73,7 +73,7 @@ cups-web/
 ├── internal/
 │   ├── auth/session.go            # securecookie 会话 + CSRF cookie
 │   ├── middleware/csrf.go         # RequireSession / RequireAdmin / ValidateCSRF
-│   ├── ipp/client.go              # IPP 客户端：列表、属性、提交打印
+│   ├── ipp/client.go              # IPP 客户端：列表、属性（含 stateDurationSeconds 状态持续时间计算）、提交打印
 │   ├── server/static.go           # 静态资源嵌入服务（SPA fallback）
 │   └── store/                     # 数据层
 │       ├── store.go               # DB 打开 + 迁移
@@ -86,7 +86,7 @@ cups-web/
 │   │   ├── main.js                # Vue app 入口
 │   │   ├── App.vue                # 顶层布局：header / router-view / footer
 │   │   ├── router/index.js        # hash 路由 + session 缓存守卫
-│   │   ├── views/                 # LoginView / PrintView / AdminView
+│   │   ├── views/                 # LoginView / PrintView（含批量打印） / AdminView（含手动清理）
 │   │   ├── components/            # 业务组件
 │   │   ├── utils/                 # api / file / format 工具
 │   │   └── index.css              # 全局样式
@@ -144,7 +144,7 @@ cups-web/
 | GET | `/api/printer-info?uri=<uri>` | 查询打印机属性（状态、队列任务数等） |
 | POST | `/api/estimate` | 上传文件，返回估算页数 |
 | POST | `/api/convert` | 上传文件，返回转换后的 PDF 流；支持单文件（`file` 字段，PDF / Office / OFD / 图片 / 文本）与多图合并（`files` 字段，多张图合成单个 PDF） |
-| POST | `/api/print` | 提交打印任务 |
+| POST | `/api/print` | 提交打印任务（前端支持批量模式：选择混合文件类型时逐个转换并提交） |
 | GET | `/api/print-records` | 查询自己的打印记录（可带 `start` / `end`） |
 | GET | `/api/print-records/{id}/file` | 下载打印记录对应的原始文件 |
 
@@ -159,6 +159,7 @@ cups-web/
 | GET | `/api/admin/print-records` | 查询全站打印记录（可带 `username` / `start` / `end`） |
 | GET | `/api/admin/settings` | 读取系统设置 |
 | PUT | `/api/admin/settings` | 更新系统设置（`retentionDays`） |
+| POST | `/api/admin/cleanup` | 手动触发清理过期打印记录与文件（同维护任务逻辑） |
 
 ### `/api/print` 表单字段
 
@@ -246,7 +247,7 @@ KV 表：`key TEXT PRIMARY KEY` + `value TEXT`。
 
 `printHandler`（`cmd/server/print_handlers.go`）是核心入口，流程：
 
-1. **接收**：解析 multipart 表单，提取 `file` + 打印参数
+1. **接收**：解析 multipart 表单（上限 512MB），提取 `file` + 打印参数
 2. **落盘**：`saveUploadedFile` 将上传文件按日期分目录保存到 `uploads/YYYYMMDD/` 下，文件名做安全化处理
 3. **类型识别 & 转换**（`detectFileKind`）：
    - `pdf` → **PDF 标准化管线**（`diagnosePDF` 诊断日志 → `normalizePDF`：Ghostscript `pdfwrite -dCompatibilityLevel=1.4 -dEmbedAllFonts=true` 优先（两档 strict `/prepress` → lenient `-dNEWPDF=false -dPDFSTOPONERROR=false` 重试）→ LibreOffice `--convert-to pdf` 兜底 → passthrough 最终降级）。**该管线只解决"CUPS 老驱动拒绝 PDF-1.7 新语法"这一类真正的兼容性故障**，对"预览显示"不会有帮助：gs 会把空壳 CJK 字体改写成带 subset 前缀的假嵌入字体，反而让浏览器 pdf.js 在预览时出现错位（详见前端 `PdfCanvas.vue` 的 `getDocument` 参数注释）。因此 `/api/convert` 预览入口应该**优先让 pdf.js 直接读原始 PDF**，只在真实打印前做最小化标准化。
@@ -278,6 +279,8 @@ KV 表：`key TEXT PRIMARY KEY` + `value TEXT`。
 3. 同步删除 `uploads/` 下的原文件与 `.print.pdf` 副文件
 4. 若有删除发生：执行 `VACUUM` 回收空间 + `PRAGMA wal_checkpoint(TRUNCATE)`
 
+管理员也可通过 `POST /api/admin/cleanup` 手动触发同一清理逻辑（`adminCleanupHandler` → `cleanupOldPrints`），前端管理页面的"立即清理"按钮即调用该接口。
+
 ## 🔧 开发环境
 
 ### 本地搭建
@@ -306,6 +309,8 @@ make clean          # 删除 bin/cups-web
 ```
 
 > **前后端整合规则**：Go 使用 `//go:embed dist/**` 将前端产物嵌入二进制，因此 **必须先构建前端** 再构建后端（CI 与 `Makefile all` 已按此顺序执行）。
+
+> **构建规范**：编译后端**必须**使用 `make build`（或等效的 `go build -ldflags='...' -o bin/cups-web ./cmd/server`），**禁止**裸执行 `go build ./cmd/server` —— 后者会在项目根目录生成名为 `server` 的垃圾文件（Go 默认用包目录名作为输出文件名），而非正确的 `bin/cups-web`。如果只需做语法/类型检查而不生成二进制，使用 `go vet ./cmd/server`。
 
 ### Vite 开发代理
 
@@ -438,6 +443,11 @@ SELECT * FROM settings;
 - UI 组件优先用 `@nuxt/ui`（全局前缀 `U`，见 `vite.config.js`）
 - 样式使用 Tailwind utility class，深色/浅色主题跟随 Nuxt UI 的 `bg-default` / `text-muted` 等语义类
 - Session 信息通过 `router/index.js` 中的 `cachedSession` 缓存，避免每次路由切换都打 `/api/session`
+
+### Git 提交
+
+- Commit message 使用中文，格式 `feat:` / `fix:` / `refactor:` 等前缀 + 简要描述
+- **禁止**在 commit message 中添加 `Co-Authored-By` 或任何 AI 署名行
 
 ## 📚 相关资源
 

@@ -97,9 +97,11 @@ func main() {
 	}).Methods("GET")
 	protected.HandleFunc("/print", printHandler).Methods("POST")
 	protected.HandleFunc("/convert", convertHandler).Methods("POST")
+	protected.HandleFunc("/compose", composeHandler).Methods("POST")
 	protected.HandleFunc("/estimate", estimateHandler).Methods("POST")
 	protected.HandleFunc("/print-records", printRecordsHandler).Methods("GET")
 	protected.HandleFunc("/print-records/{id:[0-9]+}/file", printRecordFileHandler).Methods("GET")
+	protected.HandleFunc("/print-records/{id:[0-9]+}/reprint", reprintHandler).Methods("POST")
 	protected.HandleFunc("/printer-info", printerInfoHandler).Methods("GET")
 
 	admin := api.PathPrefix("/admin").Subrouter()
@@ -113,6 +115,7 @@ func main() {
 	admin.HandleFunc("/print-records", adminPrintRecordsHandler).Methods("GET")
 	admin.HandleFunc("/settings", adminGetSettingsHandler).Methods("GET")
 	admin.HandleFunc("/settings", adminUpdateSettingsHandler).Methods("PUT")
+	admin.HandleFunc("/cleanup", adminCleanupHandler).Methods("POST")
 
 	// Static files (embedded) - register after API routes so /api/* is matched first
 	serverFS := server.NewEmbeddedServer(frontend.FS)

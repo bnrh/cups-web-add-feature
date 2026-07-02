@@ -1,9 +1,9 @@
 <template>
   <div class="p-3 sm:p-4 md:p-6 max-w-7xl mx-auto">
-    <!-- 顶部标题栏：桌面端与主体栅格对齐（3 + 2），移动端单行 flex -->
+    <!-- 顶部标题栏：桌面端与主体栅格对齐（2 + 3），移动端单行 flex -->
     <div class="mb-3 grid grid-cols-1 lg:grid-cols-5 gap-x-4 gap-y-2">
-      <!-- 左：打印标题 + 打印机下拉（桌面 col-span-3，与左栏 FileUpload 对齐） -->
-      <div class="lg:col-span-3 flex items-center gap-2 sm:gap-3 min-w-0">
+      <!-- 左：打印标题 + 打印机下拉（桌面 col-span-2，与左栏对齐） -->
+      <div class="lg:col-span-2 flex items-center gap-2 sm:gap-3 min-w-0">
         <h1 class="text-lg font-bold flex items-center gap-2 shrink-0">
           <UIcon name="i-lucide-printer" class="w-5 h-5 text-primary" />
           打印
@@ -28,8 +28,8 @@
           :loading="refreshing"
         />
       </div>
-      <!-- 右：刷新按钮（桌面 col-span-2，靠右，与右栏对齐；移动端隐藏） -->
-      <div class="hidden lg:flex lg:col-span-2 items-center justify-end">
+      <!-- 右：刷新按钮（桌面 col-span-3，靠右，与右栏对齐；移动端隐藏） -->
+      <div class="hidden lg:flex lg:col-span-3 items-center justify-end">
         <UButton
           variant="ghost"
           size="xs"
@@ -40,12 +40,29 @@
       </div>
     </div>
 
-    <!-- 主体两栏布局 -->
+    <!-- 打印模式选择器 -->
+    <div class="mb-3">
+      <div class="flex rounded-lg border border-muted overflow-hidden">
+        <label
+          v-for="m in printModeItems"
+          :key="m.value"
+          class="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 cursor-pointer text-sm transition"
+          :class="printMode === m.value ? 'bg-primary text-white font-medium' : 'hover:bg-elevated'"
+        >
+          <input type="radio" :value="m.value" :checked="printMode === m.value" class="sr-only" @change="switchMode(m.value)" />
+          <UIcon :name="m.icon" class="w-3.5 h-3.5 shrink-0" />
+          <span class="text-xs whitespace-nowrap">{{ m.label }}</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 主体两栏布局：左栏操作区（上传+参数），右栏预览区 -->
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
-      <!-- 左栏：打印设置 + 预览 -->
-      <div class="lg:col-span-3 space-y-4">
-        <!-- 1. 文件上传（打印机已合并到顶部标题栏） -->
+      <!-- 左栏：上传 + 打印参数 -->
+      <div class="lg:col-span-2 space-y-4">
+        <!-- 1. 文件上传 — 仅标准模式 -->
         <FileUpload
+          v-if="printMode === 'standard'"
           :selected-file="selectedFile"
           :display-name="fileDisplayName"
           :converting="converting"
@@ -62,42 +79,86 @@
           :gs-applied="gsApplied"
           @file-selected="processFile"
           @files-selected="processMultipleImages"
+          @files-batch-selected="processBatchFiles"
           @clear="clearFile"
           @convert="convertToPdf"
           @apply-gs="applyGsNormalization"
           @print="uploadAndPrint"
         />
 
-        <!-- 3. 预览（紧贴上传） -->
-        <PrintPreview
-          :selected-file="selectedFile"
-          :is-multi-image="isMultiImage"
-          :preview-url="previewUrl"
-          :preview-type="previewType"
-          :text-preview="textPreview"
-          :paper-size-label="paperSizeLabel"
-          v-model:orientation="orientation"
-          :orientation-label="orientationLabel"
-          :paper-dim-text="paperDimText"
-          :paper-preview-style="paperPreviewStyle"
+        <!-- 发票模式上传 -->
+        <UCard v-if="printMode === 'invoice'" :ui="{ body: 'p-3 sm:p-4' }">
+          <div class="space-y-3">
+            <div
+              class="border-2 border-dashed rounded-lg p-2 sm:p-4 text-center cursor-pointer transition-colors"
+              :class="invoiceDragging ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary/50'"
+              @dragover.prevent="invoiceDragging = true"
+              @dragleave="invoiceDragging = false"
+              @drop.prevent="onInvoiceDrop"
+              @click="invoiceInput.click()"
+            >
+              <input ref="invoiceInput" type="file" class="hidden" multiple @change="onInvoiceFileChange" />
+              <div class="flex items-center justify-center gap-2 text-sm text-muted py-1">
+                <UIcon name="i-lucide-receipt" class="w-5 h-5" />
+                <span>上传发票文件（支持多选，PDF / 图片 / OFD）</span>
+              </div>
+            </div>
+            <div v-if="invoiceFiles.length > 0" class="space-y-1">
+              <div v-for="(f, idx) in invoiceFiles" :key="idx" class="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-elevated">
+                <UIcon name="i-lucide-file" class="w-4 h-4 text-muted shrink-0" />
+                <span class="flex-1 truncate">{{ f.name }}</span>
+                <span class="text-xs text-muted shrink-0">{{ formatFileSize(f.size) }}</span>
+                <UButton variant="ghost" size="xs" color="error" icon="i-lucide-x" class="shrink-0" @click="removeInvoiceFile(idx)" />
+              </div>
+            </div>
+            <UButton
+              v-if="invoiceFiles.length > 0"
+              variant="outline"
+              size="sm"
+              icon="i-lucide-layers"
+              :loading="composing"
+              :disabled="composing"
+              @click="composeAndPreview"
+            >合并预览 ({{ invoiceFiles.length }} 个文件)</UButton>
+          </div>
+        </UCard>
+
+        <!-- 身份证模式上传 -->
+        <IdCardUpload
+          v-if="printMode === 'id_card'"
+          :front="idCardFront"
+          :back="idCardBack"
+          :front-preview="idCardFrontPreview"
+          :back-preview="idCardBackPreview"
+          @update:front="onIdCardFront"
+          @update:back="onIdCardBack"
         />
-
-        <!-- 4. 开始打印按钮（紧随预览之后，首屏即可见；主 CTA，视觉上与顶部导航区分） -->
+        <div v-if="printMode === 'id_card'" class="flex items-center gap-3">
+          <span class="text-sm text-muted shrink-0">版面</span>
+          <div class="flex rounded-lg border border-muted overflow-hidden">
+            <label
+              v-for="p in ['A4', 'A5']"
+              :key="p"
+              class="px-3 py-1 cursor-pointer text-sm transition"
+              :class="idCardPaper === p ? 'bg-primary text-white font-medium' : 'hover:bg-elevated'"
+            >
+              <input type="radio" :value="p" :checked="idCardPaper === p" class="sr-only" @change="setIdCardPaper(p)" />
+              {{ p }}
+            </label>
+          </div>
+        </div>
         <UButton
-          color="primary"
-          size="xl"
-          :ui="{ base: 'justify-center', label: 'flex-1 text-center' }"
-          class="w-full font-semibold tracking-wide shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/35 transition-all ring-1 ring-primary/30"
-          icon="i-lucide-send"
-          :disabled="!canPrint || printing"
-          :loading="printing"
-          @click="uploadAndPrint"
-        >
-          开始打印
-        </UButton>
+          v-if="printMode === 'id_card' && idCardFront && idCardBack"
+          variant="outline"
+          size="sm"
+          icon="i-lucide-layers"
+          :loading="composing"
+          :disabled="composing"
+          @click="composeAndPreview"
+        >合并预览</UButton>
 
-        <!-- 5. 多图片列表 -->
-        <UCard v-if="selectedImages.length > 1">
+        <!-- 多图片列表（仅标准模式） -->
+        <UCard v-if="printMode === 'standard' && selectedImages.length > 1">
           <template #header>
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2 font-semibold">
@@ -118,7 +179,7 @@
           </div>
         </UCard>
 
-        <!-- 6. 打印参数（不再内嵌预览与提交按钮） -->
+        <!-- 打印参数 -->
         <PrintOptions
           v-model:isColor="isColor"
           v-model:duplex="duplex"
@@ -129,22 +190,43 @@
           v-model:pageRange="pageRange"
           v-model:pageSet="pageSet"
           v-model:mirror="mirror"
+          v-model:watermarkText="watermarkText"
           :printing="printing"
         />
+
+        <!-- 开始打印按钮 -->
+        <UButton
+          color="primary"
+          size="xl"
+          :ui="{ base: 'justify-center', label: 'flex-1 text-center' }"
+          class="w-full font-semibold tracking-wide shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/35 transition-all ring-1 ring-primary/30"
+          icon="i-lucide-send"
+          :disabled="!canPrint || printing || batchPrinting"
+          :loading="printing || batchPrinting"
+          @click="uploadAndPrint"
+        >
+          {{ printButtonLabel }}
+        </UButton>
       </div>
 
-      <!-- 右栏：打印记录 + 打印机状态 -->
-      <div class="lg:col-span-2 space-y-4">
-
-        <PrintServiceCard />
-
-        <!-- <PrintRecordList :records="printRecords" :loading="loadingRecords" @refresh="loadPrintRecords" /> -->
-        <!-- 修改组件传值 -->
-        <PrintRecordList
-          :records="currentSessionRecords"
-          :loading="loadingRecords"
-          @refresh="loadPrintRecords"
-        />
+      <!-- 右栏：预览 + 打印记录 + 打印机状态 -->
+      <div class="lg:col-span-3 space-y-4">
+        <div class="lg:sticky lg:top-4 space-y-4">
+          <PrintPreview
+            :selected-file="selectedFile"
+            :is-multi-image="isMultiImage"
+            :preview-url="previewUrl"
+            :preview-type="previewType"
+            :text-preview="textPreview"
+            :paper-size-label="paperSizeLabel"
+            v-model:orientation="orientation"
+            :orientation-label="orientationLabel"
+            :paper-dim-text="paperDimText"
+            :paper-preview-style="paperPreviewStyle"
+            :watermark-text="watermarkText"
+          />
+        </div>
+        <PrintRecordList ref="recordListRef" :records="printRecords" :loading="loadingRecords" :printers="printers" :current-printer="printer" @refresh="loadPrintRecords" @reprint="handleReprint" />
         <PrinterStatus :printer-info="printerInfo" :printer-uri="printer" :loading="loadingPrinterInfo" :error="printerInfoError" @refresh="loadPrinterInfo" />
       </div>
     </div>
@@ -157,10 +239,12 @@ import { apiFetch, readError } from '../utils/api'
 import { isOfficeFile, isOFDFile } from '../utils/file'
 import { downscaleImageIfNeeded } from '../utils/image'
 import FileUpload from '../components/print/FileUpload.vue'
+import IdCardUpload from '../components/print/IdCardUpload.vue'
 import PrintPreview from '../components/print/PrintPreview.vue'
 import PrintOptions from '../components/print/PrintOptions.vue'
 import PrintRecordList from '../components/print/PrintRecordList.vue'
 import PrinterStatus from '../components/print/PrinterStatus.vue'
+import { formatFileSize } from '../utils/format'
 
 import PrintServiceCard from '../components/print/PrintServiceCard.vue'
 
@@ -187,6 +271,11 @@ const fileDisplayName = ref('')
 const gsApplying = ref(false)
 const gsApplied = ref(false)
 
+// ─── 批量打印 ────────────────────────────────────────────
+const batchFiles = ref([])
+const batchPrinting = ref(false)
+const batchProgress = ref({ current: 0, total: 0 })
+
 // ─── 打印参数 ─────────────────────────────────────────────
 const isColor = ref(true)
 const duplex = ref('one-sided')
@@ -198,6 +287,24 @@ const printScaling = ref('fit')
 const pageRange = ref('')
 const pageSet = ref('all')
 const mirror = ref(false)
+const watermarkText = ref('')
+
+// ─── 打印模式 ─────────────────────────────────────────────
+const printMode = ref(localStorage.getItem('print_mode') || 'standard')
+const printModeItems = [
+  { label: '标准打印', value: 'standard', icon: 'i-lucide-file-text' },
+  { label: '发票打印', value: 'invoice', icon: 'i-lucide-receipt' },
+  { label: '身份证打印', value: 'id_card', icon: 'i-lucide-id-card' }
+]
+const invoiceFiles = ref([])
+const invoiceDragging = ref(false)
+const invoiceInput = ref(null)
+const idCardFront = ref(null)
+const idCardBack = ref(null)
+const idCardFrontPreview = ref('')
+const idCardBackPreview = ref('')
+const idCardPaper = ref('A4')
+const composing = ref(false)
 
 // ─── 状态 ─────────────────────────────────────────────────
 const printing = ref(false)
@@ -209,6 +316,7 @@ const loginTime = ref(Date.now())
 
 const printRecords = ref([])
 const loadingRecords = ref(false)
+const recordListRef = ref(null)
 
 // 过滤打印记录
 const currentSessionRecords = computed(() => {
@@ -261,7 +369,21 @@ const paperSizeItems = [
 // ─── 计算属性 ─────────────────────────────────────────────
 const isMultiImage = computed(() => selectedImages.value.length > 1)
 const multiImageTotalSize = computed(() => selectedImages.value.reduce((sum, f) => sum + f.size, 0))
-const canPrint = computed(() => !!printer.value && (!!pdfBlob.value || !!selectedFile.value || isMultiImage.value))
+const canPrint = computed(() => {
+  if (!printer.value) return false
+  if (printMode.value === 'standard') {
+    return !!pdfBlob.value || !!selectedFile.value || isMultiImage.value || batchFiles.value.length > 0
+  }
+  // 发票/身份证模式：需要已合并出 pdfBlob
+  return !!pdfBlob.value
+})
+
+const printButtonLabel = computed(() => {
+  if (printMode.value === 'standard') {
+    return batchFiles.value.length > 0 ? `批量打印 (${batchFiles.value.length} 个文件)` : '开始打印'
+  }
+  return '开始打印'
+})
 
 // 打印机下拉选项（原 PrinterSelector.vue 迁移过来）
 const printerItems = computed(() =>
@@ -333,6 +455,7 @@ function clearFile() {
   fileDisplayName.value = ''
   gsApplying.value = false
   gsApplied.value = false
+  batchFiles.value = []
 }
 
 function processFile(f) {
@@ -449,13 +572,13 @@ function processMultipleImages(files) {
   }
 
   if (hasHeic) {
-    const batchFiles = arr
+    const heicBatch = arr
     arr.forEach((f, idx) => {
       if (!isHeicImage(f)) return
       heicBlobToJpegBlob(f)
         .then(jpegFile => {
           // 若用户在转码期间已切换/清空文件，则丢弃结果
-          if (selectedImages.value !== batchFiles) return
+          if (selectedImages.value !== heicBatch) return
           selectedImages.value[idx] = jpegFile
           imageThumbnails.value[idx] = URL.createObjectURL(jpegFile)
           // 若之前没有可用预览，此时用第一张已就绪的
@@ -469,7 +592,7 @@ function processMultipleImages(files) {
           }
         })
         .catch(err => {
-          if (selectedImages.value !== batchFiles) return
+          if (selectedImages.value !== heicBatch) return
           toast.add({
             title: `HEIC 解码失败：${f.name}`,
             description: err.message,
@@ -502,6 +625,81 @@ function removeImage(idx) {
     converted.value = false
     pdfBlob.value = null
   }
+}
+
+function processBatchFiles(files) {
+  clearFile()
+  batchFiles.value = Array.from(files)
+  fileDisplayName.value = `${batchFiles.value.length} 个文件（批量打印）`
+  previewType.value = 'text'
+  textPreview.value = `已选择 ${batchFiles.value.length} 个文件，点击"开始打印"将逐个打印。`
+}
+
+async function uploadAndPrintBatch() {
+  if (!printer.value) { toast.add({ title: '请选择打印机', color: 'warning' }); return }
+  if (batchFiles.value.length === 0) return
+
+  batchPrinting.value = true
+  batchProgress.value = { current: 0, total: batchFiles.value.length }
+  let successCount = 0
+  let failCount = 0
+
+  for (let i = 0; i < batchFiles.value.length; i++) {
+    batchProgress.value.current = i + 1
+    const file = batchFiles.value[i]
+
+    try {
+      let fileToSend = file
+      // 非 PDF 文件需要先转换
+      if (file.type !== 'application/pdf') {
+        const fd = new FormData()
+        fd.append('file', file, file.name)
+        fd.append('orientation', orientation.value)
+        fd.append('paper_size', paperSize.value)
+        const convertResp = await apiFetch('/api/convert', { method: 'POST', body: fd }, () => emit('logout'))
+        if (!convertResp.ok) {
+          throw new Error(await readError(convertResp))
+        }
+        const blob = await convertResp.blob()
+        fileToSend = new File([blob], file.name.replace(/\.[^/.]+$/, '') + '.pdf', { type: 'application/pdf' })
+      }
+
+      const form = new FormData()
+      form.append('file', fileToSend, fileToSend.name)
+      form.append('printer', printer.value)
+      form.append('duplex', duplex.value === 'one-sided' ? 'false' : 'true')
+      form.append('color', isColor.value ? 'true' : 'false')
+      form.append('copies', String(copies.value))
+      form.append('orientation', orientation.value)
+      form.append('paper_size', paperSize.value)
+      form.append('paper_type', paperType.value)
+      form.append('print_scaling', printScaling.value)
+      if (pageRange.value.trim()) form.append('page_range', pageRange.value.trim())
+      if (pageSet.value && pageSet.value !== 'all') form.append('page_set', pageSet.value)
+      if (mirror.value) form.append('mirror', 'true')
+      if (watermarkText.value.trim()) form.append('watermark_text', watermarkText.value.trim())
+
+      const resp = await apiFetch('/api/print', { method: 'POST', body: form }, () => emit('logout'))
+      if (!resp.ok) throw new Error(await readError(resp))
+      successCount++
+    } catch (e) {
+      failCount++
+      toast.add({ title: `打印失败：${file.name}`, description: e.message, color: 'error', icon: 'i-lucide-x-circle' })
+    }
+  }
+
+  if (successCount > 0) {
+    toast.add({
+      title: '批量打印完成',
+      description: `成功 ${successCount} 个${failCount > 0 ? `，失败 ${failCount} 个` : ''}`,
+      color: failCount > 0 ? 'warning' : 'success',
+      icon: failCount > 0 ? 'i-lucide-alert-triangle' : 'i-lucide-check-circle'
+    })
+    localStorage.setItem('last_printer', printer.value)
+    await loadPrintRecords()
+  }
+  batchPrinting.value = false
+  batchProgress.value = { current: 0, total: 0 }
 }
 
 // 通过后端 /api/convert 将一或多张图片合成为单个 PDF。
@@ -617,6 +815,12 @@ async function applyGsNormalization() {
 async function uploadAndPrint() {
   if (!printer.value) { toast.add({ title: '请选择打印机', color: 'warning' }); return }
 
+  // 批量打印模式
+  if (batchFiles.value.length > 0) {
+    await uploadAndPrintBatch()
+    return
+  }
+
   const fileToSend = pdfBlob.value || selectedFile.value
   if (!fileToSend && !isMultiImage.value) { toast.add({ title: '请先选择文件', color: 'warning' }); return }
   // 多图片未转换时自动转换
@@ -642,6 +846,7 @@ async function uploadAndPrint() {
   if (pageRange.value.trim()) form.append('page_range', pageRange.value.trim())
   if (pageSet.value && pageSet.value !== 'all') form.append('page_set', pageSet.value)
   if (mirror.value) form.append('mirror', 'true')
+  if (watermarkText.value.trim()) form.append('watermark_text', watermarkText.value.trim())
 
   printing.value = true
   try {
@@ -688,6 +893,39 @@ async function loadPrintRecords(silent = false) {
   }
 }
 
+async function handleReprint({ id, printer: reprintPrinter, duplex: reprintDuplex, color: reprintColor, copies: reprintCopies }) {
+  try {
+    const resp = await apiFetch(`/api/print-records/${id}/reprint`, {
+      method: 'POST',
+      body: JSON.stringify({
+        printer: reprintPrinter,
+        duplex: reprintDuplex,
+        color: reprintColor,
+        copies: reprintCopies,
+        orientation: orientation.value,
+        paperSize: paperSize.value,
+        paperType: paperType.value,
+        printScaling: printScaling.value
+      })
+    }, () => emit('logout'))
+    if (!resp.ok) {
+      throw new Error(await readError(resp))
+    }
+    const j = await resp.json()
+    toast.add({
+      title: '重新打印已提交',
+      description: `${j.pages} 页，任务ID：${j.jobId || '—'}`,
+      color: 'success',
+      icon: 'i-lucide-check-circle'
+    })
+    await loadPrintRecords()
+  } catch (e) {
+    toast.add({ title: '重新打印失败', description: e.message, color: 'error', icon: 'i-lucide-x-circle' })
+  } finally {
+    recordListRef.value?.clearReprintLoading()
+  }
+}
+
 // ─── 打印机状态 ───────────────────────────────────────────
 async function loadPrinterInfo(silent = false) {
   if (!printer.value) return
@@ -721,6 +959,126 @@ async function refreshAll() {
   refreshing.value = true
   await Promise.all([loadPrintRecords(true), loadPrinterInfo(true)])
   refreshing.value = false
+}
+
+// ─── 打印模式 ─────────────────────────────────────────────
+function switchMode(mode) {
+  if (printMode.value === mode) return
+  clearFile()
+  clearModeState()
+  printMode.value = mode
+  localStorage.setItem('print_mode', mode)
+  if (mode === 'invoice') {
+    isColor.value = false
+    printScaling.value = 'none'
+  } else if (mode === 'id_card') {
+    isColor.value = true
+    printScaling.value = 'none'
+    paperSize.value = 'A4'
+  } else {
+    isColor.value = true
+    printScaling.value = 'fit'
+  }
+}
+
+function setIdCardPaper(p) {
+  idCardPaper.value = p
+  paperSize.value = p
+}
+
+function clearModeState() {
+  invoiceFiles.value = []
+  if (idCardFrontPreview.value) { try { URL.revokeObjectURL(idCardFrontPreview.value) } catch (_) {} }
+  if (idCardBackPreview.value) { try { URL.revokeObjectURL(idCardBackPreview.value) } catch (_) {} }
+  idCardFront.value = null
+  idCardBack.value = null
+  idCardFrontPreview.value = ''
+  idCardBackPreview.value = ''
+  idCardPaper.value = 'A4'
+  composing.value = false
+}
+
+function onInvoiceDrop(e) {
+  invoiceDragging.value = false
+  addInvoiceFiles(e.dataTransfer.files)
+}
+
+function onInvoiceFileChange(e) {
+  addInvoiceFiles(e.target.files)
+  if (invoiceInput.value) invoiceInput.value.value = ''
+}
+
+function addInvoiceFiles(files) {
+  if (!files || files.length === 0) return
+  invoiceFiles.value = [...invoiceFiles.value, ...Array.from(files)]
+  // 清除之前的合并结果
+  clearPreviewUrl()
+  pdfBlob.value = null
+  converted.value = false
+  previewType.value = ''
+}
+
+function removeInvoiceFile(idx) {
+  invoiceFiles.value.splice(idx, 1)
+  clearPreviewUrl()
+  pdfBlob.value = null
+  converted.value = false
+  previewType.value = ''
+}
+
+function onIdCardFront(file) {
+  if (idCardFrontPreview.value) { try { URL.revokeObjectURL(idCardFrontPreview.value) } catch (_) {} }
+  idCardFront.value = file
+  idCardFrontPreview.value = file ? URL.createObjectURL(file) : ''
+  clearPreviewUrl()
+  pdfBlob.value = null
+  converted.value = false
+  previewType.value = ''
+}
+
+function onIdCardBack(file) {
+  if (idCardBackPreview.value) { try { URL.revokeObjectURL(idCardBackPreview.value) } catch (_) {} }
+  idCardBack.value = file
+  idCardBackPreview.value = file ? URL.createObjectURL(file) : ''
+  clearPreviewUrl()
+  pdfBlob.value = null
+  converted.value = false
+  previewType.value = ''
+}
+
+async function composeAndPreview() {
+  composing.value = true
+  try {
+    const fd = new FormData()
+    if (printMode.value === 'invoice') {
+      fd.append('mode', 'invoice')
+      for (const f of invoiceFiles.value) {
+        fd.append('files', f, f.name)
+      }
+    } else if (printMode.value === 'id_card') {
+      fd.append('mode', 'id_card')
+      fd.append('paper', idCardPaper.value)
+      fd.append('files', idCardFront.value, idCardFront.value.name)
+      fd.append('files', idCardBack.value, idCardBack.value.name)
+    }
+
+    const resp = await apiFetch('/api/compose', { method: 'POST', body: fd }, () => emit('logout'))
+    if (!resp.ok) {
+      throw new Error(await readError(resp))
+    }
+    const blob = await resp.blob()
+    clearPreviewUrl()
+    pdfBlob.value = blob
+    previewUrl.value = URL.createObjectURL(blob)
+    previewType.value = 'pdf'
+    converted.value = true
+    downloadName.value = printMode.value === 'invoice' ? '发票合并.pdf' : '身份证.pdf'
+    toast.add({ title: '合并成功', color: 'success', icon: 'i-lucide-check-circle' })
+  } catch (e) {
+    toast.add({ title: '合并失败', description: e.message, color: 'error', icon: 'i-lucide-x-circle' })
+  } finally {
+    composing.value = false
+  }
 }
 
 // ─── 定时器 ───────────────────────────────────────────────
@@ -761,5 +1119,6 @@ onUnmounted(() => {
   clearInterval(recordsTimer)
   clearInterval(printerInfoTimer)
   clearFile()
+  clearModeState()
 })
 </script>

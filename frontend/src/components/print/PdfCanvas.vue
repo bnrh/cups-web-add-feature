@@ -9,6 +9,7 @@
     </div>
     <div v-show="!loading && !error" class="relative w-full h-full flex items-center justify-center">
       <canvas ref="canvas" class="max-w-full max-h-full" />
+      <canvas ref="watermarkCanvas" class="absolute top-0 left-0 pointer-events-none" />
       <div v-if="totalPages > 1 && !loading && !error" class="absolute bottom-2 left-1/2 -translate-x-1/2 flex flex-nowrap items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 bg-black/40 rounded-full w-max max-w-[90%] whitespace-nowrap" style="backdrop-filter: blur(4px)">
         <UButton size="xs" variant="ghost" color="white" icon="i-lucide-chevron-left" :disabled="currentPage <= 1" class="flex-shrink-0" @click="prevPage" />
         <span class="text-xs text-white whitespace-nowrap flex-shrink-0">{{ currentPage }} / {{ totalPages }}</span>
@@ -26,13 +27,15 @@ import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 
 const props = defineProps({
-  src: { type: String, required: true }
+  src: { type: String, required: true },
+  watermarkText: { type: String, default: '' }
 })
 
 // 预览失败时通知父组件，便于在外层展示"不影响打印"的提示
 const emit = defineEmits(['preview-failed'])
 
 const canvas = ref(null)
+const watermarkCanvas = ref(null)
 const container = ref(null)
 const loading = ref(true)
 const error = ref(false)
@@ -51,6 +54,49 @@ let lastHeight = 0
 // 的状态（尤其在 iPhone Safari 下更容易踩到，见 issue 截图中红色的 blob 请求）。
 // 规则：renderPdf 入口自增 token，仅当捕获异常时 token 仍为当前值才写状态；过期请求静默丢弃。
 let requestToken = 0
+
+function drawWatermark() {
+  const wc = watermarkCanvas.value
+  const pc = canvas.value
+  if (!wc || !pc) return
+
+  const cssW = parseFloat(pc.style.width)
+  const cssH = parseFloat(pc.style.height)
+  if (!cssW || !cssH) return
+
+  const dpr = window.devicePixelRatio || 1
+  wc.width = cssW * dpr
+  wc.height = cssH * dpr
+  wc.style.width = cssW + 'px'
+  wc.style.height = cssH + 'px'
+
+  const ctx = wc.getContext('2d')
+  ctx.clearRect(0, 0, wc.width, wc.height)
+
+  if (!props.watermarkText) return
+
+  ctx.save()
+  ctx.scale(dpr, dpr)
+  ctx.globalAlpha = 0.15
+  ctx.fillStyle = '#b4b4b4'
+  const fontSize = Math.max(14, cssW * 0.06)
+  ctx.font = `${fontSize}px sans-serif`
+
+  const textWidth = ctx.measureText(props.watermarkText).width
+  const stepX = textWidth + 30
+  const stepY = fontSize * 2.5
+  const diag = Math.sqrt(cssW * cssW + cssH * cssH)
+
+  ctx.translate(cssW / 2, cssH / 2)
+  ctx.rotate(-45 * Math.PI / 180)
+
+  for (let y = -diag; y < diag; y += stepY) {
+    for (let x = -diag; x < diag; x += stepX) {
+      ctx.fillText(props.watermarkText, x, y)
+    }
+  }
+  ctx.restore()
+}
 
 async function renderPage(pageNum) {
   if (!pdfDoc || !canvas.value) return
@@ -95,6 +141,7 @@ async function renderPage(pageNum) {
 
     await renderTask.promise
     renderTask = null
+    drawWatermark()
   } catch (e) {
     if (e?.name === 'RenderingCancelledException') return
     throw e
@@ -120,20 +167,13 @@ async function renderPdf() {
       pdfDoc = null
     }
 
-    // 关键参数说明：
-    // - cMapUrl / cMapPacked：支持 UniGB-UCS2-H 等中文外部 CMap，修复 CJK 预览空白
-    // - standardFontDataUrl：提供标准 14 字体数据（Helvetica/Courier/Times 等）
-    // - disableFontFace=false：允许用 @font-face 注入字体（默认就是 false，显式保留以防升级回归）
-    // - useSystemFonts=false：优先使用 PDF 中嵌入的字体而非系统字体，
-    //   配合后端 normalizePDF（gs pdfwrite 嵌入 TrueType 子集），确保预览与打印字形一致
-    // - isEvalSupported=false：CSP/严格 Worker 环境下避免 eval 被拦截
     const doc = await pdfjsLib.getDocument({
       url: props.src,
       cMapUrl: '/pdfjs/cmaps/',
       cMapPacked: true,
       standardFontDataUrl: '/pdfjs/standard_fonts/',
       disableFontFace: false,
-      useSystemFonts: false,
+      useSystemFonts: true,
       isEvalSupported: false
     }).promise
 
@@ -183,6 +223,10 @@ watch(() => props.src, () => {
   if (props.src) {
     nextTick(() => renderPdf())
   }
+})
+
+watch(() => props.watermarkText, () => {
+  drawWatermark()
 })
 
 onMounted(() => {

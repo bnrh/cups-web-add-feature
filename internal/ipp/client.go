@@ -117,8 +117,9 @@ func SendPrintJob(printerURI string, r io.Reader, mime string, username string, 
 	// Used together with page-ranges (range is applied first, then odd/even is
 	// filtered). Typical use case: manual duplex – print odd pages, flip the
 	// paper stack, then print even pages. Default "all" is a no-op and therefore
-	// not sent on the wire.
-	if set := normalizePageSet(opts.PageSet); set != "" && set != "all" {
+	// not sent on the wire. "even-reverse" is pre-processed by the caller (PDF
+	// page reordering) so it must NOT be sent as an IPP attribute.
+	if set := normalizePageSet(opts.PageSet); set != "" && set != "all" && set != "even-reverse" {
 		req.Job.Add(goipp.MakeAttribute("page-set", goipp.TagKeyword, goipp.String(set)))
 	}
 
@@ -225,9 +226,11 @@ func paperTypeToIPP(t string) string {
 	return m[t]
 }
 
-// normalizePageSet maps arbitrary user input to one of the CUPS-recognized
-// page-set values ("all" | "odd" | "even"). Returns an empty string for
-// unknown values so the caller can omit the IPP attribute entirely.
+// normalizePageSet maps arbitrary user input to one of the recognized
+// page-set values ("all" | "odd" | "even" | "even-reverse"). Returns an
+// empty string for unknown values so the caller can omit the IPP attribute.
+// "even-reverse" is handled by the caller (PDF page reordering) and must NOT
+// be sent to CUPS as an IPP attribute.
 func normalizePageSet(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "all":
@@ -236,6 +239,8 @@ func normalizePageSet(s string) string {
 		return "odd"
 	case "even":
 		return "even"
+	case "even-reverse":
+		return "even-reverse"
 	default:
 		return ""
 	}
@@ -266,20 +271,21 @@ func parsePageRange(s string) [][2]int {
 
 // PrinterInfo holds information about a printer retrieved via IPP Get-Printer-Attributes.
 type PrinterInfo struct {
-	Name            string            `json:"name"`
-	URI             string            `json:"uri"`
-	State           string            `json:"state"`
-	StateMessage    string            `json:"stateMessage"`
-	StateReasons    []string          `json:"stateReasons"`
-	QueuedJobs      int               `json:"queuedJobs"`
-	FirmwareVersion string            `json:"firmwareVersion"`
-	UptimeSeconds   int               `json:"uptimeSeconds"`
-	MarkerNames     []string          `json:"markerNames"`
-	MarkerTypes     []string          `json:"markerTypes"`
-	MarkerLevels    []int             `json:"markerLevels"`
-	MarkerColors    []string          `json:"markerColors"`
-	MediaReady      []string          `json:"mediaReady"`
-	Attributes      map[string]string `json:"attributes"`
+	Name                 string            `json:"name"`
+	URI                  string            `json:"uri"`
+	State                string            `json:"state"`
+	StateMessage         string            `json:"stateMessage"`
+	StateReasons         []string          `json:"stateReasons"`
+	QueuedJobs           int               `json:"queuedJobs"`
+	FirmwareVersion      string            `json:"firmwareVersion"`
+	UptimeSeconds        int               `json:"uptimeSeconds"`
+	StateDurationSeconds int               `json:"stateDurationSeconds"`
+	MarkerNames          []string          `json:"markerNames"`
+	MarkerTypes          []string          `json:"markerTypes"`
+	MarkerLevels         []int             `json:"markerLevels"`
+	MarkerColors         []string          `json:"markerColors"`
+	MediaReady           []string          `json:"mediaReady"`
+	Attributes           map[string]string `json:"attributes"`
 }
 
 // httpToIppURI converts an http:// URI to ipp:// for use in IPP request attributes.
@@ -351,6 +357,7 @@ func GetPrinterAttributes(printerURI string) (*PrinterInfo, error) {
 		Attributes: make(map[string]string),
 	}
 
+	var stateChangeTime int
 	for _, a := range rsp.Printer {
 		if len(a.Values) == 0 {
 			continue
@@ -384,6 +391,8 @@ func GetPrinterAttributes(printerURI string) (*PrinterInfo, error) {
 			info.FirmwareVersion = a.Values[0].V.String()
 		case "printer-up-time":
 			fmt.Sscanf(a.Values[0].V.String(), "%d", &info.UptimeSeconds)
+		case "printer-state-change-time":
+			fmt.Sscanf(a.Values[0].V.String(), "%d", &stateChangeTime)
 		case "marker-names":
 			for _, v := range a.Values {
 				info.MarkerNames = append(info.MarkerNames, v.V.String())
@@ -413,6 +422,11 @@ func GetPrinterAttributes(printerURI string) (*PrinterInfo, error) {
 			}
 			info.Attributes[a.Name] = strings.Join(vals, ", ")
 		}
+	}
+
+	// 计算状态持续时间：uptime - stateChangeTime
+	if info.UptimeSeconds > 0 && stateChangeTime > 0 && info.UptimeSeconds >= stateChangeTime {
+		info.StateDurationSeconds = info.UptimeSeconds - stateChangeTime
 	}
 
 	log.Printf("[ipp] GetPrinterAttributes done: name=%q state=%q jobs=%d markers=%d",

@@ -111,6 +111,16 @@
                 <span class="text-sm">水平镜像翻转</span>
               </label>
             </UFormField>
+
+            <!-- 水印文字 -->
+            <UFormField label="水印文字" hint="留空=不添加水印；如：仅供XX使用">
+              <UInput
+                :model-value="watermarkText"
+                placeholder="留空=不添加水印"
+                class="w-full"
+                @update:model-value="$emit('update:watermarkText', $event)"
+              />
+            </UFormField>
           </div>
         </div>
       </div>
@@ -120,7 +130,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   isColor: { type: Boolean, default: true },
@@ -132,16 +142,18 @@ const props = defineProps({
   pageRange: { type: String, default: '' },
   pageSet: { type: String, default: 'all' },
   mirror: { type: Boolean, default: false },
+  watermarkText: { type: String, default: '' },
   printing: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
   'update:isColor', 'update:duplex', 'update:copies',
   'update:paperSize', 'update:paperType', 'update:printScaling', 'update:pageRange',
-  'update:pageSet', 'update:mirror'
+  'update:pageSet', 'update:mirror', 'update:watermarkText'
 ])
 
-const showAdvanced = ref(false)
+const showAdvanced = ref(localStorage.getItem('print_options_expanded') === '1')
+watch(showAdvanced, (val) => { localStorage.setItem('print_options_expanded', val ? '1' : '0') })
 const pageRangeError = ref('')
 
 const advancedSummary = computed(() => {
@@ -153,6 +165,7 @@ const advancedSummary = computed(() => {
   const pageSetLabel = pageSetItems.find(i => i.value === props.pageSet)?.label
   if (props.pageSet && props.pageSet !== 'all' && pageSetLabel) parts.push(pageSetLabel)
   if (props.mirror) parts.push('镜像')
+  if (props.watermarkText) parts.push(`水印: ${props.watermarkText}`)
   return parts.join(' / ')
 })
 
@@ -203,8 +216,9 @@ const scalingItems = [
 
 const pageSetItems = [
   { label: '全部页', value: 'all', icon: 'i-lucide-copy' },
-  { label: '仅奇数页', value: 'odd', icon: 'i-lucide-list-ordered' },
-  { label: '仅偶数页', value: 'even', icon: 'i-lucide-list-ordered' }
+  { label: '奇数页', value: 'odd', icon: 'i-lucide-list-ordered' },
+  { label: '偶数页', value: 'even', icon: 'i-lucide-list-ordered' },
+  { label: '偶数页(倒序)', value: 'even-reverse', icon: 'i-lucide-arrow-down-up' }
 ]
 
 function onPageRangeInput(val) {
