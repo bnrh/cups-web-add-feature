@@ -68,7 +68,7 @@
         <div class="flex flex-col items-center">
         <div class="bg-white rounded-xl p-2 border border-default shadow-sm">
             <img
-            src="/Mini_Program_QR_Code.jpg/"
+            src="/Mini_Program_QR_Code.jpg"
             alt="微信小程序二维码"
             class="w-40 h-40 object-contain"
             />
@@ -82,7 +82,7 @@
         <div class="flex flex-col items-center">
         <div class="bg-white rounded-xl p-2 border border-default shadow-sm">
             <img
-            src="/Business_QR_Code.jpg/"
+            src="/Business_QR_Code.jpg"
             alt="微信收款二维码"
             class="w-40 h-40 object-contain"
             />
