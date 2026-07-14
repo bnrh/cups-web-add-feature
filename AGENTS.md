@@ -173,10 +173,14 @@ cups-web/
 | `orientation` | `portrait` / `landscape` | 页面方向 |
 | `paper_size` | `A4` / `A3` / `5inch` / `6inch` / `7inch` / `8inch` / `10inch` | 纸张尺寸 |
 | `paper_type` | `plain` / `photo` / `glossy` / `matte` / `envelope` / `cardstock` / `labels` / `auto` | 纸张类型 |
+| `media_source` | string（打印机上报的纸盒关键字，如 `tray-1` / `main` / `manual`） | 进纸盒（对应 IPP `media-source`，映射到 CUPS 驱动 PPD 的 `InputSlot`）；可选值由 `/api/printer-info` 返回的 `mediaSourceSupported` 动态决定，`auto`（默认）不发送到 IPP（Issue #75） |
 | `print_scaling` | `auto` / `auto-fit` / `fit` / `fill` / `none` | 缩放策略 |
 | `page_range` | string | 页码范围，如 `1-5 8 10-12` |
 | `page_set` | `all` / `odd` / `even` | 页面子集（仅打奇数页 / 仅打偶数页）；在 `page_range` 截出的页序基础上再过滤，典型场景是**手动双面打印**——先打奇数页，把纸翻面放回后再打偶数页。对应 CUPS 的 `page-set` 属性（由 `pdftopdf` filter 处理），`all` 视为默认值、不会发送到 IPP 请求。前端留空或选「全部页」等同于 `all` |
 | `mirror` | `"true"` / `"false"` | 镜像打印 |
+| `number_up` | `1` / `2` / `4` / `6` / `9` / `16` | 一张多页（N-up），每张纸缩排的逻辑页数；`1`（默认）= 关闭，不发送到 IPP。由 CUPS `pdftopdf` filter 原生处理，对应 IPP `number-up`（Issue #78） |
+| `number_up_layout` | `lrtb` / `rltb` / `tblr` / `tbrl` | N-up 的页面排布顺序（横向 Z 形 / 纵向 N 形），对应 IPP `number-up-layout`；仅 `number_up > 1` 时生效 |
+| `page_border` | `single` / `none` | N-up 时是否为每个小页绘制边框，对应 IPP `page-border`；仅 `number_up > 1` 时生效 |
 
 ## 🗄️ 数据库
 
@@ -210,7 +214,22 @@ SQLite，启用 `WAL` + `foreign_keys`；迁移逻辑在 `internal/store/store.g
 | `status` | TEXT | `queued` / `printed` |
 | `is_duplex` | INTEGER | 是否双面 |
 | `is_color` | INTEGER | 是否彩色 |
+| `copies` | INTEGER | 份数（Issue #68） |
+| `orientation` | TEXT | 页面方向 `portrait` / `landscape`（Issue #68） |
+| `paper_size` | TEXT | 纸张尺寸（Issue #68） |
+| `paper_type` | TEXT | 纸张类型（Issue #68） |
+| `media_source` | TEXT | 进纸盒关键字，`auto` = 自动（Issue #68） |
+| `print_scaling` | TEXT | 缩放策略（Issue #68） |
+| `page_range` | TEXT | 页码范围（Issue #68） |
+| `page_set` | TEXT | 页面子集 `all` / `odd` / `even` / `even-reverse`（Issue #68） |
+| `mirror` | INTEGER | 镜像打印（Issue #68） |
+| `watermark_text` | TEXT | 水印文字（Issue #68） |
+| `number_up` | INTEGER | 一张多页 N-up（Issue #68） |
+| `number_up_layout` | TEXT | N-up 排布顺序（Issue #68） |
+| `page_border` | TEXT | N-up 每小页边框 `single` / `none`（Issue #68） |
 | `created_at` | TEXT | RFC3339 UTC |
+
+> 💡 除 `is_duplex` / `is_color` 外，其余打印参数列均为 [Issue #68](https://github.com/hanxi/cups-web/issues/68) 新增：首次打印时把**完整打印参数**快照落库，`print_records_handlers.go::reprintHandler` 读取后让前端「重新打印」对话框（复用 `PrintOptions` 组件）**精确预填第一次的每一项设置**。老库经 `migrate()` 的 `addColumnIfMissing` 热升级，历史记录这些列取默认值（`A4` / `portrait` / `auto` / `all` 等），重打时退化为合理默认。注意 `page_set` 落库存的是用户原始选择（`even-reverse` 等），不是 even-reverse 重排后被改写的值。
 
 ### `settings`
 

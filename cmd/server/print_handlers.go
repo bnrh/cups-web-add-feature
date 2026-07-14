@@ -61,10 +61,25 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 	paperSize := r.FormValue("paper_size")
 	paperType := r.FormValue("paper_type")
 	printScaling := r.FormValue("print_scaling")
+	mediaSource := r.FormValue("media_source")
 	pageRange := r.FormValue("page_range")
 	pageSet := r.FormValue("page_set")
+	// even-reverse 分支下方会改写 pageSet，落库要保留用户的原始选择（Issue #68）。
+	origPageSet := pageSet
 	mirror := r.FormValue("mirror") == "true"
 	watermarkText := strings.TrimSpace(r.FormValue("watermark_text"))
+
+	// N-up (multiple pages per sheet). Default numberUp=1 means off; invalid or
+	// unsupported values fall back to 1 (Issue #78).
+	numberUp := 1
+	if n, err := strconv.Atoi(r.FormValue("number_up")); err == nil {
+		switch n {
+		case 1, 2, 4, 6, 9, 16:
+			numberUp = n
+		}
+	}
+	numberUpLayout := r.FormValue("number_up_layout")
+	pageBorder := r.FormValue("page_border")
 
 	var saveHistory bool
 	if err := appStore.WithTx(r.Context(), true, func(tx *sql.Tx) error {
@@ -310,7 +325,22 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 				Status:     "queued",
 				IsDuplex:   isDuplex,
 				IsColor:    isColor,
-				CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+
+				Copies:         copies,
+				Orientation:    orientation,
+				PaperSize:      paperSize,
+				PaperType:      paperType,
+				MediaSource:    mediaSource,
+				PrintScaling:   printScaling,
+				PageRange:      pageRange,
+				PageSet:        origPageSet,
+				Mirror:         mirror,
+				WatermarkText:  watermarkText,
+				NumberUp:       numberUp,
+				NumberUpLayout: numberUpLayout,
+				PageBorder:     pageBorder,
+
+				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			}
 			id, err := store.InsertPrintRecord(r.Context(), tx, &rec)
 			if err != nil {
@@ -356,10 +386,15 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 		PaperSize:    paperSize,
 		PaperType:    paperType,
 		PrintScaling: printScaling,
+		MediaSource:  mediaSource,
 		PageRange:    pageRange,
 		PageSet:      pageSet,
 		Mirror:       mirror,
 		Pages:        pages,
+
+		NumberUp:       numberUp,
+		NumberUpLayout: numberUpLayout,
+		PageBorder:     pageBorder,
 	}
 
 	job, err := ipp.SendPrintJob(printer, f, mime, sess.Username, fh.Filename, printOpts)

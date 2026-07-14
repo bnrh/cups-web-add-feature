@@ -23,6 +23,11 @@ export default defineConfig({
           if (id.includes('node_modules/@nuxt/ui') || id.includes('node_modules/reka-ui') || id.includes('node_modules/@vueuse')) {
             return 'ui-vendor'
           }
+          // lucide 图标全集离线内联（见 main.js），单独成块便于长期缓存——
+          // 图标数据几乎不变，与频繁更新的业务代码分离可减少重复下载
+          if (id.includes('node_modules/@iconify-json/lucide')) {
+            return 'icons-vendor'
+          }
           if (id.includes('node_modules/pdfjs-dist')) {
             return 'pdf-vendor'
           }

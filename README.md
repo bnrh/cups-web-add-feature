@@ -135,10 +135,15 @@ services:
       - CUPSPASSWORD=${CUPSPASSWORD}
     ports:
       - "631:631"
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
+    # USB 打印机热插拔支持（issue #81）：用 volume 目录挂载 /dev/bus/usb
+    # 而非 devices:，让「后开机」的打印机新建的设备节点能实时传播进容器；
+    # device_cgroup_rules 放开 USB 字符设备（major 189）的访问权限。
     volumes:
       - ./.etc:/etc/cups
+      - /dev/bus/usb:/dev/bus/usb
+      - /run/udev:/run/udev:ro
+    device_cgroup_rules:
+      - 'c 189:* rmw'
     restart: unless-stopped
 
   web:
@@ -371,6 +376,18 @@ docker-compose up -d
 2. 确认打印机设置为 **Shared**
 3. 容器化部署时确认 `CUPS_HOST` 指向正确的 CUPS 服务地址
 4. 重启 CUPS：`docker-compose restart cups`
+
+### 打印机后开机就识别不到，要重启容器才行？（USB 热插拔）
+
+打印机比容器晚开机时,CUPS 枚举不到 USB 设备——典型场景是 NAS 长期开机、用时才开打印机（issue #81）。原因是旧版 `docker-compose.yml` 用 `devices:` 绑定 USB,而 `devices:` 只在容器启动那一刻绑定一次,「后开机」打印机新建的 `/dev/bus/usb/...` 节点不会传播进容器。
+
+按上方最新的 `docker-compose.yml` 改用 volume 目录挂载 `/dev/bus/usb` + `device_cgroup_rules` 即可支持热插拔:
+
+```bash
+docker-compose down && docker-compose up -d
+```
+
+之后先启动容器、再开打印机也能被识别。若你的 Docker 环境不支持 `device_cgroup_rules`（部分旧版本 / rootless / cgroup v1）,删掉该字段并改用 `privileged: true` 即可,效果相同、权限更宽。
 
 ### Office / OFD 转换失败？
 
