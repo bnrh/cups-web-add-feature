@@ -57,7 +57,7 @@ jobs:
             VERSION=${{ github.ref_name }}
           tags: |
             bnrh/cups-web:${{ github.ref_name }}
-            ${{ github.ref_type == 'tag' && 'bnrh/cups-web:latest' || '' }}
+            ${{ github.ref_type == 'branch' && 'bnrh/cups-web:latest' || '' }}
           cache-from: type=gha,scope=cups-web
           cache-to: type=gha,scope=cups-web,mode=max
 
