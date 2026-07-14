@@ -207,13 +207,15 @@
         >
           {{ printButtonLabel }}
         </UButton>
+        
+        <PrintServiceCard />
+          
       </div>
 
       <!-- 右栏：预览 + 打印记录 + 打印机状态 -->
       <div class="lg:col-span-3 space-y-4">
         <div class="lg:sticky lg:top-4 space-y-4">
-          <PrintServiceCard />
-          
+
           <PrintPreview
             :selected-file="selectedFile"
             :is-multi-image="isMultiImage"
